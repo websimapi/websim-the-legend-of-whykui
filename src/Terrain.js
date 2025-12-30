@@ -45,10 +45,11 @@ export class Terrain {
             const isFlat = THREE.MathUtils.smoothstep(0.5, 0.8, ny);
             const heightOcc = THREE.MathUtils.smoothstep(-5, 5, y);
             
-            const baseColor = new THREE.Color(0x3d3226); // Soil
-            const rockColor = new THREE.Color(0x1a1a1a); // Rock
+            const baseColor = new THREE.Color(0x2d4c1e); // Grass Green Base
+            const rockColor = new THREE.Color(0x4a4a4a); // Rock Grey
             
-            const finalColor = rockColor.clone().lerp(baseColor, isFlat);
+            // Bias towards grass color for stylized look
+            const finalColor = rockColor.clone().lerp(baseColor, smoothstep(0.6, 0.9, isFlat));
             finalColor.multiplyScalar(0.5 + 0.5 * heightOcc); // AO
 
             colors.push(finalColor.r, finalColor.g, finalColor.b);

@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
-import { SSAOPass } from 'three/addons/postprocessing/SSAOPass.js';
+
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 
@@ -42,11 +42,12 @@ scene.add(ambientLight);
 const sunLight = new THREE.DirectionalLight(0xffdfba, 1.5);
 sunLight.position.set(50, 80, 20);
 sunLight.castShadow = true;
-sunLight.shadow.mapSize.width = 2048;
-sunLight.shadow.mapSize.height = 2048;
+sunLight.shadow.mapSize.width = 1024;
+sunLight.shadow.mapSize.height = 1024;
+sunLight.shadow.bias = -0.0005; 
 sunLight.shadow.camera.near = 0.5;
 sunLight.shadow.camera.far = 200;
-const d = 50;
+const d = 80;
 sunLight.shadow.camera.left = -d;
 sunLight.shadow.camera.right = d;
 sunLight.shadow.camera.top = d;
@@ -62,19 +63,13 @@ const terrain = new Terrain(scene);
 let vegetation;
 
 // Defer vegetation creation until terrain is ready (synchronous here but good practice)
-vegetation = new Vegetation(scene, terrain.mesh, 30000);
+vegetation = new Vegetation(scene, terrain.mesh, 20000);
 
 // --- Post Processing ---
 const composer = new EffectComposer(renderer);
 
 const renderPass = new RenderPass(scene, camera);
 composer.addPass(renderPass);
-
-const ssaoPass = new SSAOPass(scene, camera, window.innerWidth, window.innerHeight);
-ssaoPass.kernelRadius = 16;
-ssaoPass.minDistance = 0.005;
-ssaoPass.maxDistance = 0.1;
-composer.addPass(ssaoPass);
 
 const bloomPass = new UnrealBloomPass(new THREE.Vector2(window.innerWidth, window.innerHeight), 1.5, 0.4, 0.85);
 bloomPass.threshold = 0.7;
@@ -175,6 +170,12 @@ function animate() {
     // Update
     controls.update(dt);
     if (vegetation) vegetation.update(time, state.rtx, state.wind);
+
+    // Keep shadows centered on player
+    sunLight.position.x = camera.position.x + 50;
+    sunLight.position.z = camera.position.z + 20;
+    sunLight.target.position.set(camera.position.x, 0, camera.position.z);
+    sunLight.target.updateMatrixWorld();
 
     // Render
     if (state.rtx) {

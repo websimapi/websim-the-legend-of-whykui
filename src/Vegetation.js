@@ -6,6 +6,7 @@ const grassVertexShader = `
     varying vec3 vColor;
     varying vec3 vNormal;
     varying vec3 vViewPosition;
+    varying float vSway;
     
     attribute float aScale;
     attribute vec3 aColor;
@@ -18,10 +19,21 @@ const grassVertexShader = `
         vUv = uv;
         vColor = aColor;
         
-        // --- Geometry construction ---
-        vec3 pos = position;
+        // World position of the instance base
+        vec4 worldInstancePos = instanceMatrix * vec4(0.0, 0.0, 0.0, 1.0);
         
-        // Scale
+        // --- Wind Calculation ---
+        // Multi-frequency noise for more natural movement
+        float t = uTime * 1.5;
+        float windX = sin(t + worldInstancePos.x * 0.5 + worldInstancePos.z * 0.2);
+        float windZ = cos(t * 0.8 + worldInstancePos.x * 0.3 + worldInstancePos.z * 0.5);
+        float windDetail = sin(t * 3.0 + worldInstancePos.x + worldInstancePos.z);
+        
+        float sway = (windX + windZ * 0.5 + windDetail * 0.2) * uWindStrength;
+        vSway = sway;
+
+        // --- Geometry ---
+        vec3 pos = position;
         pos.y *= aScale;
         
         // Rotation
@@ -29,29 +41,24 @@ const grassVertexShader = `
         float s = sin(aRotation);
         pos.xz = mat2(c, -s, s, c) * pos.xz;
         
-        // --- Wind Animation ---
-        // Simple procedural wind noise
-        vec4 worldInstancePos = instanceMatrix * vec4(0.0, 0.0, 0.0, 1.0);
-        float noise = sin(uTime * 2.0 + worldInstancePos.x * 0.5 + worldInstancePos.z * 0.3);
+        // Apply Sway based on height (parabolic for stiffness)
+        float bendFactor = pow(uv.y, 1.5);
+        pos.x += sway * 0.5 * bendFactor;
+        pos.z += sway * 0.2 * bendFactor;
         
-        // Bend factor increases with height (uv.y)
-        float bend = pow(uv.y, 2.0) * noise * uWindStrength * 0.5;
-        
-        pos.x += bend;
-        pos.z += bend * 0.2; // secondary axis bend
-        
-        // --- Final Transform ---
+        // --- Outputs ---
         vec4 worldPos = instanceMatrix * vec4(pos, 1.0);
         vec4 mvPosition = viewMatrix * worldPos;
         gl_Position = projectionMatrix * mvPosition;
         
-        // Approx normal for lighting
+        // Normal adjustment for stylized lighting
+        // We tilt the normal slightly towards the sway to catch light
         vec3 normal = vec3(0.0, 1.0, 0.0);
-        // Tilt normal with bend
-        normal.x -= bend;
+        normal.x -= sway * 0.3;
         normal = normalize(mat3(instanceMatrix) * mat3(c, -s, s, c) * normal);
-        vNormal = normal;
         
+        // Make normals point slightly up more uniformly for "fluffy" look
+        vNormal = normalize(mix(normal, vec3(0.0, 1.0, 0.0), 0.4));
         vViewPosition = -mvPosition.xyz;
     }
 `;
@@ -61,51 +68,56 @@ const grassFragmentShader = `
     varying vec3 vColor;
     varying vec3 vNormal;
     varying vec3 vViewPosition;
+    varying float vSway;
 
     uniform float uRtxEnabled;
     
-    // Simple Lighting Params
-    const vec3 sunDirection = normalize(vec3(0.5, 0.8, 0.2));
-    const vec3 sunColor = vec3(1.0, 0.95, 0.8);
-    const vec3 ambientColor = vec3(0.1, 0.2, 0.3);
+    // Lighting Params
+    const vec3 sunDirection = normalize(vec3(0.4, 1.0, 0.2));
+    const vec3 sunColor = vec3(1.1, 1.05, 0.9);
+    const vec3 ambientColor = vec3(0.2, 0.25, 0.35); // Blue-ish shadows
 
     void main() {
-        // Taper shape discard
-        float width = 1.0 - vUv.y * 0.8; // taper at top
-        if (abs(vUv.x - 0.5) * 2.0 > width) discard;
+        // Zelda-style shape: tapered tip
+        // Width at y=0 is 1.0, at y=1 is 0.0
+        float shapeWidth = 1.0 - pow(vUv.y, 0.8); 
+        if (abs(vUv.x - 0.5) * 2.0 > shapeWidth) discard;
 
-        // Base Gradient
-        vec3 color = mix(vColor * 0.5, vColor * 1.5, vUv.y);
-        
+        // --- Color Gradient ---
+        // Base is dark, top is light/yellowish
+        vec3 colorBottom = vColor * 0.8;
+        vec3 colorTop = vColor * 1.6 + vec3(0.1, 0.1, 0.0); // Add yellow tint
+        vec3 color = mix(colorBottom, colorTop, smoothstep(0.0, 1.0, vUv.y));
+
         // --- Lighting ---
         vec3 normal = normalize(vNormal);
         vec3 viewDir = normalize(vViewPosition);
-        
-        // Diffuse (Wrap lighting for SSS feel)
+
+        // Simple Half-Lambert for soft shading
         float NdotL = dot(normal, sunDirection);
-        float diff = NdotL * 0.5 + 0.5; // Half-Lambert
+        float lightIntensity = NdotL * 0.5 + 0.5;
         
-        // Backlight / Translucency
-        float backLight = max(0.0, dot(viewDir, -sunDirection));
-        float sss = pow(backLight, 4.0) * vUv.y * 0.8;
-        
-        // Specular
+        // Add a bit of "rim" on the sway side
+        float rim = 1.0 - max(0.0, dot(viewDir, normal));
+        rim = pow(rim, 3.0) * 0.5;
+
+        // Specular shine (glossy grass)
         vec3 halfVec = normalize(sunDirection + viewDir);
         float NdotH = dot(normal, halfVec);
-        float spec = pow(max(0.0, NdotH), 32.0) * 0.2;
+        float spec = pow(max(0.0, NdotH), 20.0) * 0.3 * uv.y; // Only shiny at top
         
-        // Combine
-        vec3 lighting = ambientColor + (sunColor * diff) + (sunColor * sss) + (sunColor * spec);
+        // Ambient Occlusion ramp at bottom
+        float ao = smoothstep(0.0, 0.3, vUv.y);
         
-        // AO at bottom
-        float ao = smoothstep(0.0, 0.4, vUv.y);
-        lighting *= (0.2 + 0.8 * ao);
+        vec3 finalLighting = ambientColor + (sunColor * lightIntensity) + (sunColor * spec) + (sunColor * rim);
+        finalLighting *= (0.4 + 0.6 * ao); // darkening at root
 
-        gl_FragColor = vec4(color * lighting, 1.0);
+        gl_FragColor = vec4(color * finalLighting, 1.0);
         
-        // If RTX is on, maybe we boost saturation slightly or leave it to post
+        // Boost saturation for stylized look
         if (uRtxEnabled > 0.5) {
-            gl_FragColor.rgb *= 1.1;
+            vec3 gray = vec3(dot(gl_FragColor.rgb, vec3(0.299, 0.587, 0.114)));
+            gl_FragColor.rgb = mix(gray, gl_FragColor.rgb, 1.3); // Saturation boost
         }
     }
 `;
@@ -122,7 +134,7 @@ export class Vegetation {
 
     init() {
         // Shared Geometry
-        const geometry = new THREE.PlaneGeometry(0.15, 1.0, 1, 4);
+        const geometry = new THREE.PlaneGeometry(0.3, 1.0, 1, 1); // Wider, less poly
         geometry.translate(0, 0.5, 0); // Pivot base
 
         // Material
@@ -175,10 +187,16 @@ export class Vegetation {
                     rot = Math.random() * Math.PI * 2;
                     scale = randomRange(0.7, 1.3);
                     
-                    // Jitter color hue (HSL -> RGB manual or approx)
-                    // Base Green (0.2, 0.5, 0.1)
-                    const hueShift = Math.random() * 0.2 - 0.1;
-                    color = [0.1 + hueShift, 0.4 + hueShift, 0.1];
+                    // Vibrant Zelda-like Green
+                    // Variation between slightly bluish green and yellowish green
+                    const v = Math.random();
+                    // Base: R:0.1, G:0.6, B:0.1
+                    // Variation adds slightly R/G
+                    const r = 0.05 + v * 0.1;
+                    const g = 0.45 + v * 0.3;
+                    const b = 0.05 + v * 0.1;
+                    
+                    color = [r, g, b];
                     validCount++;
                 }
             }

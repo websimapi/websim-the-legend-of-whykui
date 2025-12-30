@@ -5,15 +5,16 @@ const noise2D = createNoise2D();
 
 // Terrain height function - Reused for physics and visual generation
 export function getTerrainHeight(x, z) {
-    // Large low-frequency shapes
-    let y = noise2D(x * 0.015, z * 0.015) * 8;
-    // Medium details
-    y += noise2D(x * 0.05, z * 0.05) * 3;
-    // Small variation
-    y += noise2D(x * 0.1, z * 0.1) * 1;
+    // Large low-frequency shapes (Rolling hills)
+    let y = noise2D(x * 0.01, z * 0.01) * 10;
+    // Gentle detail
+    y += noise2D(x * 0.03, z * 0.03) * 4;
     
-    // Flatten valleys slightly
-    if (y < -2) y = -2 + (y + 2) * 0.5;
+    // Less high frequency jagged noise for Zelda look
+    y += noise2D(x * 0.1, z * 0.1) * 0.5;
+    
+    // Flatten valleys for gameplay area
+    if (y < -2) y = -2 + (y + 2) * 0.3;
     
     return y;
 }
@@ -39,9 +40,9 @@ export function generateSoilTextures() {
         const n = noise2D(x * 0.05, y * 0.05);
         const n2 = noise2D(x * 0.2, y * 0.2);
         
-        // Brown/Earth colors
-        const r = 80 + n * 20 + n2 * 10;
-        const g = 60 + n * 15 + n2 * 5;
+        // Green/Grass colors
+        const r = 40 + n * 20 + n2 * 10;
+        const g = 100 + n * 30 + n2 * 10;
         const b = 40 + n * 10;
         
         // Add some high freq noise
