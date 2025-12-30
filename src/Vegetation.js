@@ -75,7 +75,7 @@ const grassFragmentShader = `
     // Lighting Params
     const vec3 sunDirection = normalize(vec3(0.4, 1.0, 0.2));
     const vec3 sunColor = vec3(1.1, 1.05, 0.9);
-    const vec3 ambientColor = vec3(0.2, 0.25, 0.35); // Blue-ish shadows
+    const vec3 ambientColor = vec3(0.3, 0.4, 0.3); // Warmer ambient for greener grass
 
     void main() {
         // Zelda-style shape: tapered tip
