@@ -105,7 +105,7 @@ const grassFragmentShader = `
         // Specular shine (glossy grass)
         vec3 halfVec = normalize(sunDirection + viewDir);
         float NdotH = dot(normal, halfVec);
-        float spec = pow(max(0.0, NdotH), 20.0) * 0.3 * uv.y; // Only shiny at top
+        float spec = pow(max(0.0, NdotH), 20.0) * 0.3 * vUv.y; // Only shiny at top
         
         // Ambient Occlusion ramp at bottom
         float ao = smoothstep(0.0, 0.3, vUv.y);
