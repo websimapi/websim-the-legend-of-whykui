@@ -1,219 +1,210 @@
 import * as THREE from 'three';
-import { getTerrainHeight, randomRange } from './Utils.js';
+import { randomRange } from './Utils.js';
 
-const vertexShader = `
-  varying vec2 vUv;
-  varying float vHeight;
-  uniform float uTime;
-  
-  attribute float aScale;
-  attribute float aRotation;
-  attribute vec3 aColor;
-  
-  varying vec3 vColor;
+const grassVertexShader = `
+    varying vec2 vUv;
+    varying vec3 vColor;
+    varying vec3 vNormal;
+    varying vec3 vViewPosition;
+    
+    attribute float aScale;
+    attribute vec3 aColor;
+    attribute float aRotation;
 
-  // Simple noise for wind
-  float noise(vec2 p) {
-      return sin(p.x * 10.0 + uTime) * sin(p.y * 10.0 + uTime);
-  }
+    uniform float uTime;
+    uniform float uWindStrength;
 
-  void main() {
-    vUv = uv;
-    vColor = aColor;
-    
-    vec3 pos = position;
-    
-    // Rotation
-    float c = cos(aRotation);
-    float s = sin(aRotation);
-    mat2 rot = mat2(c, -s, s, c);
-    pos.xz = rot * pos.xz;
-    
-    // Scaling
-    pos *= aScale;
-    
-    // Wind Effect (only affects top of grass)
-    float windStrength = 0.5;
-    float windWave = sin(uTime * 1.5 + instanceMatrix[3][0] * 0.1 + instanceMatrix[3][2] * 0.1);
-    
-    // Bend grass based on height (uv.y or pos.y)
-    // Assuming simple geometry where y goes from 0 to height
-    float bend = pos.y * pos.y * 0.1 * windWave * windStrength;
-    pos.x += bend;
-    pos.z += bend * 0.5;
-
-    // Instance transform
-    vec4 instancePos = instanceMatrix * vec4(pos, 1.0);
-    
-    gl_Position = projectionMatrix * viewMatrix * instancePos;
-    vHeight = pos.y;
-  }
-`;
-
-const fragmentShader = `
-  varying vec2 vUv;
-  varying vec3 vColor;
-  uniform vec3 uGlobalLight;
-  
-  void main() {
-    // Simple gradient for grass blade
-    vec3 color = vColor;
-    
-    // Darker at bottom
-    color *= smoothstep(-0.2, 1.0, vUv.y);
-    
-    // Apply global lighting (Day/Night)
-    color *= uGlobalLight;
-    
-    gl_FragColor = vec4(color, 1.0);
-  }
-`;
-
-const flowerFragmentShader = `
-  varying vec2 vUv;
-  varying vec3 vColor;
-  uniform vec3 uGlobalLight;
-  
-  void main() {
-    vec3 color = vColor;
-    // Apply global lighting first to base petal color
-    color *= uGlobalLight;
-    
-    // Add a glowing center (Emissive - visible at night)
-    float dist = distance(vUv, vec2(0.5));
-    if (dist < 0.2) {
-         // Warm golden/white glow
-         color += vec3(0.5, 0.4, 0.2); 
+    void main() {
+        vUv = uv;
+        vColor = aColor;
+        
+        // --- Geometry construction ---
+        vec3 pos = position;
+        
+        // Scale
+        pos.y *= aScale;
+        
+        // Rotation
+        float c = cos(aRotation);
+        float s = sin(aRotation);
+        pos.xz = mat2(c, -s, s, c) * pos.xz;
+        
+        // --- Wind Animation ---
+        // Simple procedural wind noise
+        vec4 worldInstancePos = instanceMatrix * vec4(0.0, 0.0, 0.0, 1.0);
+        float noise = sin(uTime * 2.0 + worldInstancePos.x * 0.5 + worldInstancePos.z * 0.3);
+        
+        // Bend factor increases with height (uv.y)
+        float bend = pow(uv.y, 2.0) * noise * uWindStrength * 0.5;
+        
+        pos.x += bend;
+        pos.z += bend * 0.2; // secondary axis bend
+        
+        // --- Final Transform ---
+        vec4 worldPos = instanceMatrix * vec4(pos, 1.0);
+        vec4 mvPosition = viewMatrix * worldPos;
+        gl_Position = projectionMatrix * mvPosition;
+        
+        // Approx normal for lighting
+        vec3 normal = vec3(0.0, 1.0, 0.0);
+        // Tilt normal with bend
+        normal.x -= bend;
+        normal = normalize(mat3(instanceMatrix) * mat3(c, -s, s, c) * normal);
+        vNormal = normal;
+        
+        vViewPosition = -mvPosition.xyz;
     }
+`;
+
+const grassFragmentShader = `
+    varying vec2 vUv;
+    varying vec3 vColor;
+    varying vec3 vNormal;
+    varying vec3 vViewPosition;
+
+    uniform float uRtxEnabled;
     
-    gl_FragColor = vec4(color, 1.0);
-  }
+    // Simple Lighting Params
+    const vec3 sunDirection = normalize(vec3(0.5, 0.8, 0.2));
+    const vec3 sunColor = vec3(1.0, 0.95, 0.8);
+    const vec3 ambientColor = vec3(0.1, 0.2, 0.3);
+
+    void main() {
+        // Taper shape discard
+        float width = 1.0 - vUv.y * 0.8; // taper at top
+        if (abs(vUv.x - 0.5) * 2.0 > width) discard;
+
+        // Base Gradient
+        vec3 color = mix(vColor * 0.5, vColor * 1.5, vUv.y);
+        
+        // --- Lighting ---
+        vec3 normal = normalize(vNormal);
+        vec3 viewDir = normalize(vViewPosition);
+        
+        // Diffuse (Wrap lighting for SSS feel)
+        float NdotL = dot(normal, sunDirection);
+        float diff = NdotL * 0.5 + 0.5; // Half-Lambert
+        
+        // Backlight / Translucency
+        float backLight = max(0.0, dot(viewDir, -sunDirection));
+        float sss = pow(backLight, 4.0) * vUv.y * 0.8;
+        
+        // Specular
+        vec3 halfVec = normalize(sunDirection + viewDir);
+        float NdotH = dot(normal, halfVec);
+        float spec = pow(max(0.0, NdotH), 32.0) * 0.2;
+        
+        // Combine
+        vec3 lighting = ambientColor + (sunColor * diff) + (sunColor * sss) + (sunColor * spec);
+        
+        // AO at bottom
+        float ao = smoothstep(0.0, 0.4, vUv.y);
+        lighting *= (0.2 + 0.8 * ao);
+
+        gl_FragColor = vec4(color * lighting, 1.0);
+        
+        // If RTX is on, maybe we boost saturation slightly or leave it to post
+        if (uRtxEnabled > 0.5) {
+            gl_FragColor.rgb *= 1.1;
+        }
+    }
 `;
 
 export class Vegetation {
-    constructor(scene, count = 5000) {
+    constructor(scene, terrainMesh, count = 20000) {
         this.scene = scene;
+        this.terrainMesh = terrainMesh;
         this.count = count;
-        this.grassMaterial = null;
-        this.flowerMaterial = null;
+        this.mesh = null;
+        this.material = null;
         this.init();
     }
 
     init() {
-        this.createGrass();
-        this.createFlowers();
-    }
+        // Shared Geometry
+        const geometry = new THREE.PlaneGeometry(0.15, 1.0, 1, 4);
+        geometry.translate(0, 0.5, 0); // Pivot base
 
-    createGrass() {
-        // Simple blade geometry
-        const geometry = new THREE.PlaneGeometry(0.12, 1.2, 1, 3); // Slightly larger, fewer segments to optimize high count
-        geometry.translate(0, 0.5, 0); // Pivot at bottom
-
-        this.grassMaterial = new THREE.ShaderMaterial({
-            vertexShader,
-            fragmentShader,
+        // Material
+        this.material = new THREE.ShaderMaterial({
+            vertexShader: grassVertexShader,
+            fragmentShader: grassFragmentShader,
             uniforms: {
                 uTime: { value: 0 },
-                uGlobalLight: { value: new THREE.Color(1, 1, 1) }
+                uWindStrength: { value: 1.0 },
+                uRtxEnabled: { value: 0.0 }
             },
             side: THREE.DoubleSide
         });
 
-        const mesh = new THREE.InstancedMesh(geometry, this.grassMaterial, this.count);
-        
-        const dummy = new THREE.Object3D();
-        const scales = [];
-        const rotations = [];
-        const colors = [];
+        this.mesh = new THREE.InstancedMesh(geometry, this.material, this.count);
+        this.mesh.castShadow = true;
+        this.mesh.receiveShadow = true;
 
+        // Placement Logic
+        const dummy = new THREE.Object3D();
+        const raycaster = new THREE.Raycaster();
+        const down = new THREE.Vector3(0, -1, 0);
+        
+        const scales = [];
+        const colors = [];
+        const rotations = [];
+        
+        let validCount = 0;
+        
         for (let i = 0; i < this.count; i++) {
-            const x = randomRange(-90, 90);
-            const z = randomRange(-90, 90);
-            const y = getTerrainHeight(x, z);
-
-            dummy.position.set(x, y, z);
-            dummy.updateMatrix();
-            mesh.setMatrixAt(i, dummy.matrix);
-
-            scales.push(randomRange(0.8, 1.5));
-            rotations.push(randomRange(0, Math.PI * 2));
+            // Random Pos
+            const x = randomRange(-48, 48);
+            const z = randomRange(-48, 48);
             
-            // Varied greens
-            const r = randomRange(0.1, 0.3);
-            const g = randomRange(0.4, 0.7);
-            const b = randomRange(0.1, 0.3);
-            colors.push(r, g, b);
+            // Raycast to find ground height and normal
+            raycaster.set(new THREE.Vector3(x, 50, z), down);
+            const intersects = raycaster.intersectObject(this.terrainMesh);
+            
+            let scale = 0; // default hidden
+            let color = [0,0,0];
+            let rot = 0;
+
+            if (intersects.length > 0) {
+                const hit = intersects[0];
+                const slope = hit.face.normal.y; // 1 is flat up
+                
+                // Only place on relatively flat ground (grass doesn't grow on steep cliffs)
+                if (slope > 0.7) {
+                    dummy.position.copy(hit.point);
+                    rot = Math.random() * Math.PI * 2;
+                    scale = randomRange(0.7, 1.3);
+                    
+                    // Jitter color hue (HSL -> RGB manual or approx)
+                    // Base Green (0.2, 0.5, 0.1)
+                    const hueShift = Math.random() * 0.2 - 0.1;
+                    color = [0.1 + hueShift, 0.4 + hueShift, 0.1];
+                    validCount++;
+                }
+            }
+
+            dummy.scale.setScalar(scale); // if scale 0, invisible
+            dummy.updateMatrix();
+            this.mesh.setMatrixAt(i, dummy.matrix);
+            
+            scales.push(scale);
+            rotations.push(rot);
+            colors.push(...color);
         }
 
         geometry.setAttribute('aScale', new THREE.InstancedBufferAttribute(new Float32Array(scales), 1));
         geometry.setAttribute('aRotation', new THREE.InstancedBufferAttribute(new Float32Array(rotations), 1));
         geometry.setAttribute('aColor', new THREE.InstancedBufferAttribute(new Float32Array(colors), 3));
 
-        mesh.instanceMatrix.needsUpdate = true;
-        this.scene.add(mesh);
+        this.mesh.instanceMatrix.needsUpdate = true;
+        this.scene.add(this.mesh);
     }
 
-    createFlowers() {
-        // Simple flower geometry: a cone for stem? No, just the head for now to save polys
-        // Let's do a cross-quad shape for the flower head
-        const geometry = new THREE.PlaneGeometry(0.3, 0.3);
-        geometry.rotateX(-Math.PI / 6); // Tilt up slightly
-        geometry.translate(0, 0.8, 0); // Put at top of "stem" (we'll imply stem with position)
-
-        this.flowerMaterial = new THREE.ShaderMaterial({
-            vertexShader, // Reuse wind shader
-            fragmentShader: flowerFragmentShader,
-            uniforms: {
-                uTime: { value: 0 },
-                uGlobalLight: { value: new THREE.Color(1, 1, 1) }
-            },
-            side: THREE.DoubleSide
-        });
-
-        const flowerCount = this.count / 10;
-        const mesh = new THREE.InstancedMesh(geometry, this.flowerMaterial, flowerCount);
-        
-        const dummy = new THREE.Object3D();
-        const scales = [];
-        const rotations = [];
-        const colors = [];
-
-        for (let i = 0; i < flowerCount; i++) {
-            const x = randomRange(-90, 90);
-            const z = randomRange(-90, 90);
-            const y = getTerrainHeight(x, z);
-
-            // Offset y slightly so it sits in the grass
-            dummy.position.set(x, y, z);
-            dummy.updateMatrix();
-            mesh.setMatrixAt(i, dummy.matrix);
-
-            scales.push(randomRange(0.8, 1.2));
-            rotations.push(randomRange(0, Math.PI * 2));
-            
-            // Algorithmic colors: Blues, Purples, Whites
-            const type = Math.random();
-            if (type < 0.33) colors.push(0.8, 0.8, 1.0); // White-ish
-            else if (type < 0.66) colors.push(0.5, 0.2, 0.8); // Purple
-            else colors.push(0.2, 0.5, 1.0); // Blue
-        }
-
-        geometry.setAttribute('aScale', new THREE.InstancedBufferAttribute(new Float32Array(scales), 1));
-        geometry.setAttribute('aRotation', new THREE.InstancedBufferAttribute(new Float32Array(rotations), 1));
-        geometry.setAttribute('aColor', new THREE.InstancedBufferAttribute(new Float32Array(colors), 3));
-
-        mesh.instanceMatrix.needsUpdate = true;
-        this.scene.add(mesh);
-    }
-
-    update(time, lightColor) {
-        if (this.grassMaterial) {
-            this.grassMaterial.uniforms.uTime.value = time;
-            if (lightColor) this.grassMaterial.uniforms.uGlobalLight.value.copy(lightColor);
-        }
-        if (this.flowerMaterial) {
-            this.flowerMaterial.uniforms.uTime.value = time;
-            if (lightColor) this.flowerMaterial.uniforms.uGlobalLight.value.copy(lightColor);
+    update(time, rtxEnabled, windEnabled) {
+        if (this.material) {
+            this.material.uniforms.uTime.value = time;
+            this.material.uniforms.uRtxEnabled.value = rtxEnabled ? 1.0 : 0.0;
+            this.material.uniforms.uWindStrength.value = windEnabled ? 1.0 : 0.1;
         }
     }
 }

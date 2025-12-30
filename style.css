@@ -2,65 +2,146 @@ body {
     margin: 0;
     overflow: hidden;
     background-color: #000;
-    font-family: 'Cinzel', serif; /* Fallback will occur if not loaded, but generic serif is fine */
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    user-select: none;
+    -webkit-user-select: none;
 }
 
 canvas {
     display: block;
-    width: 100vw;
-    height: 100vh;
+    width: 100%;
+    height: 100%;
+    outline: none;
 }
 
-#ui-container {
+#loader {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: #050505;
+    color: #fff;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    z-index: 100;
+    transition: opacity 0.5s ease;
+}
+
+.loader-content {
+    text-align: center;
+}
+
+.loader-content h1 {
+    font-size: 1.2rem;
+    letter-spacing: 0.2em;
+    font-weight: 300;
+    margin-bottom: 20px;
+}
+
+.spinner {
+    width: 40px;
+    height: 40px;
+    border: 3px solid rgba(255,255,255,0.1);
+    border-top-color: #fff;
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+    margin: 0 auto 20px;
+}
+
+@keyframes spin { to { transform: rotate(360deg); } }
+
+#hud {
     position: absolute;
     top: 0;
     left: 0;
     width: 100%;
     height: 100%;
     pointer-events: none;
-    display: flex;
-    flex-direction: column;
-    justify-content: center;
-    align-items: center;
-    text-align: center;
     z-index: 10;
-    text-shadow: 0 2px 10px rgba(0,0,0,0.8);
+}
+
+.header {
+    position: absolute;
+    top: 20px;
+    left: 20px;
+    right: 20px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    color: rgba(255, 255, 255, 0.9);
+    text-shadow: 0 1px 4px rgba(0,0,0,0.8);
 }
 
 .title {
-    font-size: 3rem;
-    color: #f0e6d2;
-    margin: 0;
-    font-weight: 100;
-    letter-spacing: 0.2em;
-    opacity: 0;
-    animation: fadeIn 3s ease-out 1s forwards;
-    text-transform: uppercase;
-}
-
-.subtitle {
+    font-weight: 700;
+    letter-spacing: 0.05em;
     font-size: 1rem;
-    color: #a8a8a8;
-    margin-top: 20px;
-    letter-spacing: 0.1em;
-    opacity: 0;
-    animation: fadeIn 2s ease-out 3s forwards, pulse 2s infinite ease-in-out 5s;
 }
 
-@keyframes fadeIn {
-    from { opacity: 0; transform: translateY(20px); }
-    to { opacity: 1; transform: translateY(0); }
+#fps {
+    font-family: monospace;
+    font-size: 0.9rem;
+    color: #4f4;
 }
 
-@keyframes pulse {
-    0% { opacity: 0.5; }
-    50% { opacity: 1; }
-    100% { opacity: 0.5; }
+.controls-hint {
+    position: absolute;
+    bottom: 30px;
+    width: 100%;
+    text-align: center;
+    color: rgba(255,255,255,0.4);
+    font-size: 0.8rem;
+    pointer-events: none;
 }
 
-/* Mobile adjustments */
-@media (max-width: 600px) {
-    .title {
-        font-size: 2rem;
-    }
+.toggles {
+    position: absolute;
+    top: 60px;
+    right: 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    pointer-events: auto;
+}
+
+.chip {
+    background: rgba(0,0,0,0.5);
+    border: 1px solid rgba(255,255,255,0.2);
+    color: #aaa;
+    padding: 8px 16px;
+    border-radius: 20px;
+    font-size: 0.8rem;
+    cursor: pointer;
+    backdrop-filter: blur(4px);
+    transition: all 0.2s ease;
+}
+
+.chip.active {
+    background: rgba(255,255,255,0.9);
+    color: #000;
+    font-weight: 600;
+    border-color: #fff;
+    box-shadow: 0 0 15px rgba(255,255,255,0.3);
+}
+
+#zone-joystick {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    width: 50%;
+    height: 50%;
+    z-index: 5;
+    touch-action: none;
+}
+
+#zone-look {
+    position: absolute;
+    bottom: 0;
+    right: 0;
+    width: 50%;
+    height: 100%;
+    z-index: 5;
+    touch-action: none;
 }

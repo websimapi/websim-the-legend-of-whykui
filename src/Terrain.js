@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { getTerrainHeight } from './Utils.js';
+import { getTerrainHeight, generateSoilTextures } from './Utils.js';
 
 export class Terrain {
     constructor(scene) {
@@ -9,34 +9,71 @@ export class Terrain {
     }
 
     init() {
-        // Create a large plane - Increased resolution for smoothness
-        const size = 200;
-        const segments = 256; 
+        // Size ≈100, Resolution ≈64
+        const size = 100;
+        const segments = 128; // Slightly higher for better lighting
         const geometry = new THREE.PlaneGeometry(size, size, segments, segments);
         geometry.rotateX(-Math.PI / 2);
 
-        // Displace vertices based on noise
+        // Deform and set vertex colors
         const posAttribute = geometry.attributes.position;
-        for (let i = 0; i < posAttribute.count; i++) {
+        const colors = [];
+        const count = posAttribute.count;
+
+        for (let i = 0; i < count; i++) {
             const x = posAttribute.getX(i);
             const z = posAttribute.getZ(i);
             const y = getTerrainHeight(x, z);
             posAttribute.setY(i, y);
         }
-        
+
         geometry.computeVertexNormals();
 
-        // Material with better reaction to light
+        // Bake Lighting into Vertex Colors
+        const normals = geometry.attributes.normal;
+        for (let i = 0; i < count; i++) {
+            // Slope factor (Upness)
+            const ny = normals.getY(i);
+            // Height factor
+            const y = posAttribute.getY(i);
+            
+            // Color Logic:
+            // High slope = Rock (Dark Grey)
+            // Low slope = Soil/Grass base (Brownish)
+            // Low height = darker (Occlusion)
+            
+            const isFlat = THREE.MathUtils.smoothstep(0.5, 0.8, ny);
+            const heightOcc = THREE.MathUtils.smoothstep(-5, 5, y);
+            
+            const baseColor = new THREE.Color(0x3d3226); // Soil
+            const rockColor = new THREE.Color(0x1a1a1a); // Rock
+            
+            const finalColor = rockColor.clone().lerp(baseColor, isFlat);
+            finalColor.multiplyScalar(0.5 + 0.5 * heightOcc); // AO
+
+            colors.push(finalColor.r, finalColor.g, finalColor.b);
+        }
+
+        geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+
+        // Generate Textures
+        const { diffuseMap, normalMap } = generateSoilTextures();
+
+        diffuseMap.repeat.set(8, 8);
+        normalMap.repeat.set(8, 8);
+
         const material = new THREE.MeshStandardMaterial({
-            color: 0x3a4b52, // Slightly lighter/richer base
-            roughness: 0.8,
-            metalness: 0.0,
-            flatShading: false // Smooth shading
+            map: diffuseMap,
+            normalMap: normalMap,
+            vertexColors: true,
+            roughness: 0.9,
+            metalness: 0.1,
+            normalScale: new THREE.Vector2(1.5, 1.5)
         });
 
         this.mesh = new THREE.Mesh(geometry, material);
         this.mesh.receiveShadow = true;
-        this.mesh.castShadow = false; // Self-shadowing on terrain can be expensive/ugly without bias tuning
+        this.mesh.castShadow = true;
         this.scene.add(this.mesh);
     }
 }

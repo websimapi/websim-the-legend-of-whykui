@@ -1,218 +1,195 @@
 import * as THREE from 'three';
+import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+import { SSAOPass } from 'three/addons/postprocessing/SSAOPass.js';
+import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
+
 import { Terrain } from './Terrain.js';
 import { Vegetation } from './Vegetation.js';
+import { Controls } from './Controls.js';
 
-// Setup basic scene
+// --- State ---
+const state = {
+    rtx: true,
+    wind: true,
+    fps: 0,
+    frames: 0,
+    lastTime: 0
+};
+
+// --- Initialization ---
 const scene = new THREE.Scene();
-scene.background = new THREE.Color(0x050510);
-scene.fog = new THREE.FogExp2(0x050510, 0.015);
+scene.background = new THREE.Color(0x88ccff);
+scene.fog = new THREE.FogExp2(0x88ccff, 0.02);
 
-const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
-const renderer = new THREE.WebGLRenderer({ antialias: true });
+const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 100);
+camera.position.set(0, 10, 10);
+
+const renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: "high-performance" });
 renderer.setSize(window.innerWidth, window.innerHeight);
-renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5)); // Limit pixel ratio for performance
 renderer.shadowMap.enabled = true;
-renderer.shadowMap.type = THREE.PCFSoftShadowMap; // Softer shadows
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.0;
 document.body.appendChild(renderer.domElement);
 
-// --- DAY/NIGHT SYSTEM ---
-
-// Lights
-const hemiLight = new THREE.HemisphereLight(0xffffff, 0x444444, 0.5);
-scene.add(hemiLight);
+// --- Lights ---
+const ambientLight = new THREE.AmbientLight(0xffffff, 0.2);
+scene.add(ambientLight);
 
 const sunLight = new THREE.DirectionalLight(0xffdfba, 1.5);
+sunLight.position.set(50, 80, 20);
 sunLight.castShadow = true;
 sunLight.shadow.mapSize.width = 2048;
 sunLight.shadow.mapSize.height = 2048;
 sunLight.shadow.camera.near = 0.5;
-sunLight.shadow.camera.far = 300;
-sunLight.shadow.camera.left = -120;
-sunLight.shadow.camera.right = 120;
-sunLight.shadow.camera.top = 120;
-sunLight.shadow.camera.bottom = -120;
+sunLight.shadow.camera.far = 200;
+const d = 50;
+sunLight.shadow.camera.left = -d;
+sunLight.shadow.camera.right = d;
+sunLight.shadow.camera.top = d;
+sunLight.shadow.camera.bottom = -d;
 scene.add(sunLight);
 
-// Visual Sun
-const sunMesh = new THREE.Mesh(
-    new THREE.SphereGeometry(5, 16, 16),
-    new THREE.MeshBasicMaterial({ color: 0xffaa00 })
-);
-scene.add(sunMesh);
+const rimLight = new THREE.DirectionalLight(0x88ccff, 0.5);
+rimLight.position.set(-50, 20, -50);
+scene.add(rimLight);
 
-const moonLight = new THREE.DirectionalLight(0x6688ff, 0.4);
-moonLight.castShadow = true;
-moonLight.shadow.mapSize.width = 1024;
-moonLight.shadow.mapSize.height = 1024;
-moonLight.shadow.camera.near = 0.5;
-moonLight.shadow.camera.far = 300;
-moonLight.shadow.camera.left = -120;
-moonLight.shadow.camera.right = 120;
-moonLight.shadow.camera.top = 120;
-moonLight.shadow.camera.bottom = -120;
-scene.add(moonLight);
-
-// Visual Moon
-const moonMesh = new THREE.Mesh(
-    new THREE.SphereGeometry(4, 16, 16),
-    new THREE.MeshStandardMaterial({ 
-        color: 0xdddddd, 
-        emissive: 0x222222,
-        roughness: 0.8 
-    })
-);
-scene.add(moonMesh);
-
-
-// Colors
-const skyColorDay = new THREE.Color(0x87CEEB);
-const skyColorNight = new THREE.Color(0x0a0a20);
-const skyColorSunset = new THREE.Color(0xfd5e53);
-
-const groundColorDay = new THREE.Color(0x3a4b52); // Earthy
-const groundColorNight = new THREE.Color(0x050505);
-
- // Configuration
-const DAY_DURATION = 24 * 60; // 24 minutes in seconds (1 real second = 1 in-game minute)
-const now = new Date();
-// Map local time-of-day to game time: 1 real hour -> 1 in‑game minute (which is 1 real second)
-// 00:00 Real Time -> 00:00 Game Time (Start of cycle)
-const START_TIME = ((now.getHours() * 60) + now.getMinutes()) % DAY_DURATION;
-
-// Content
+// --- World ---
 const terrain = new Terrain(scene);
-const vegetation = new Vegetation(scene, 60000); // Increased grass count significantly
+let vegetation;
 
-// Audio
+// Defer vegetation creation until terrain is ready (synchronous here but good practice)
+vegetation = new Vegetation(scene, terrain.mesh, 30000);
+
+// --- Post Processing ---
+const composer = new EffectComposer(renderer);
+
+const renderPass = new RenderPass(scene, camera);
+composer.addPass(renderPass);
+
+const ssaoPass = new SSAOPass(scene, camera, window.innerWidth, window.innerHeight);
+ssaoPass.kernelRadius = 16;
+ssaoPass.minDistance = 0.005;
+ssaoPass.maxDistance = 0.1;
+composer.addPass(ssaoPass);
+
+const bloomPass = new UnrealBloomPass(new THREE.Vector2(window.innerWidth, window.innerHeight), 1.5, 0.4, 0.85);
+bloomPass.threshold = 0.7;
+bloomPass.strength = 0.3;
+bloomPass.radius = 0.5;
+composer.addPass(bloomPass);
+
+const outputPass = new OutputPass();
+composer.addPass(outputPass);
+
+// --- Controls ---
+const controls = new Controls(camera, renderer.domElement);
+
+// --- Audio ---
 const listener = new THREE.AudioListener();
 camera.add(listener);
 const sound = new THREE.Audio(listener);
 const audioLoader = new THREE.AudioLoader();
+audioLoader.load('./bgm_whykui.mp3', (buffer) => {
+    sound.setBuffer(buffer);
+    sound.setLoop(true);
+    sound.setVolume(0.5);
+    // Play on interaction if not playing
+});
 
-let audioStarted = false;
-const uiContainer = document.getElementById('ui-container');
+// --- UI Logic ---
+const loader = document.getElementById('loader');
+setTimeout(() => {
+    loader.style.opacity = '0';
+    setTimeout(() => loader.remove(), 500);
+}, 1500); // Fake load time for "Generating Terrain" feel
 
-function startExperience() {
-    if (audioStarted) return;
-    audioStarted = true;
+const btnRtx = document.getElementById('btn-rtx');
+const btnWind = document.getElementById('btn-wind');
+const fpsEl = document.getElementById('fps');
+
+btnRtx.addEventListener('click', () => {
+    state.rtx = !state.rtx;
+    btnRtx.classList.toggle('active', state.rtx);
+    btnRtx.innerText = state.rtx ? "RTX ON" : "RTX OFF";
+    updateQuality();
+});
+
+btnWind.addEventListener('click', () => {
+    state.wind = !state.wind;
+    btnWind.classList.toggle('active', state.wind);
+    btnWind.innerText = state.wind ? "WIND ON" : "WIND OFF";
     
-    // Hide "Touch to Start" logic visually if you had a button, 
-    // but here we just start audio on interaction
-    
-    audioLoader.load('bgm_whykui.mp3', function(buffer) {
-        sound.setBuffer(buffer);
-        sound.setLoop(true);
+    if (state.wind) {
+        if (sound.buffer && !sound.isPlaying) sound.play();
         sound.setVolume(0.5);
+    } else {
+        sound.setVolume(0);
+    }
+});
+
+function updateQuality() {
+    if (state.rtx) {
+        sunLight.intensity = 1.5;
+        scene.fog.density = 0.02;
+        renderer.shadowMap.enabled = true;
+    } else {
+        sunLight.intensity = 1.0;
+        scene.fog.density = 0.035; // Thicker fog to hide lack of distant detail
+        renderer.shadowMap.enabled = false;
+    }
+    // Note: Composer vs Renderer is handled in loop
+}
+
+// Handle Interactions to unlock Audio
+const unlockAudio = () => {
+    if (state.wind && sound.buffer && !sound.isPlaying) {
         sound.play();
-    });
-}
+    }
+    window.removeEventListener('click', unlockAudio);
+    window.removeEventListener('touchstart', unlockAudio);
+};
+window.addEventListener('click', unlockAudio);
+window.addEventListener('touchstart', unlockAudio);
 
-window.addEventListener('click', startExperience);
-window.addEventListener('touchstart', startExperience);
-
-// Animation Loop
+// --- Loop ---
 const clock = new THREE.Clock();
-const globalLightColor = new THREE.Color();
-
-function updateDayNight(elapsed) {
-    // Current time in cycle (0 to DAY_DURATION)
-    const cycleTime = (elapsed + START_TIME) % DAY_DURATION;
-    const progress = cycleTime / DAY_DURATION; // 0 to 1
-    
-    // Angle adjustment: 
-    // progress 0.0 (00:00) -> Midnight (Sun Down -Y)
-    // progress 0.25 (06:00) -> Sunrise (Sun Y=0)
-    // progress 0.5 (12:00) -> Noon (Sun Up +Y)
-    // progress 0.75 (18:00) -> Sunset (Sun Y=0)
-    const theta = (progress - 0.25) * Math.PI * 2;
-    
-    // Sun Position (rises in East(x+), sets in West(x-))
-    const sunRadius = 150;
-    const sunElevation = Math.sin(theta); // -1 to 1
-    const sunX = Math.cos(theta);
-    
-    sunMesh.position.set(sunX * sunRadius, sunElevation * sunRadius, 0);
-    sunLight.position.copy(sunMesh.position);
-    
-    // Moon Position (opposite to sun)
-    moonMesh.position.set(-sunX * sunRadius, -sunElevation * sunRadius, 0);
-    moonLight.position.copy(moonMesh.position);
-
-    // Light Intensity & Shadows
-    const sunIntensity = Math.max(0, sunElevation);
-    sunLight.intensity = sunIntensity * 2.0;
-    
-    const moonIntensity = Math.max(0, -sunElevation);
-    moonLight.intensity = moonIntensity * 0.5; // Blue moonlight
-
-    // Shadows
-    sunLight.castShadow = sunIntensity > 0.05;
-    moonLight.castShadow = moonIntensity > 0.05;
-
-    // Sky Color Interpolation
-    let targetSky = skyColorNight.clone();
-    
-    if (sunElevation > 0.1) {
-        // Day
-        const t = Math.min(1, (sunElevation - 0.1) * 1.5);
-        targetSky = skyColorSunset.clone().lerp(skyColorDay, t);
-    } else if (sunElevation > -0.2) {
-        // Twilight / Sunrise / Sunset
-        // Range -0.2 to 0.1 -> 0 to 1
-        const t = (sunElevation + 0.2) / 0.3;
-        targetSky = skyColorNight.clone().lerp(skyColorSunset, t);
-    } 
-    // Else Night (stays skyColorNight)
-
-    scene.background.copy(targetSky);
-    scene.fog.color.copy(targetSky);
-
-    // Atmosphere / Hemisphere
-    hemiLight.color.copy(targetSky);
-    // Boost ground ambient slightly at night for "Moon bounce"
-    const moonBounce = new THREE.Color(0x1a2b45).multiplyScalar(moonIntensity * 0.5); 
-    const currentGround = groundColorNight.clone().add(moonBounce).lerp(groundColorDay, sunIntensity);
-    hemiLight.groundColor.copy(currentGround);
-    
-    // Global Light for Vegetation (Fake GI)
-    globalLightColor.setHex(0x000000);
-    // Sun contribution
-    globalLightColor.add(new THREE.Color(0xffdfba).multiplyScalar(sunIntensity));
-    // Moon contribution - boosted for visibility
-    globalLightColor.add(new THREE.Color(0x88aaff).multiplyScalar(moonIntensity * 0.8));
-    // Ambient contribution
-    globalLightColor.add(targetSky.multiplyScalar(0.4));
-    // Minimum floor to prevent pitch black
-    globalLightColor.addScalar(0.05); 
-}
 
 function animate() {
     requestAnimationFrame(animate);
-
-    const time = clock.getElapsedTime();
     
-    // Cycle Update
-    updateDayNight(time);
+    const dt = clock.getDelta();
+    const time = clock.getElapsedTime();
 
-    // Camera Pan
-    const radius = 60;
-    const speed = 0.03; // Slower pan
-    camera.position.x = Math.sin(time * speed) * radius;
-    camera.position.z = Math.cos(time * speed) * radius;
-    camera.position.y = 18; 
-    camera.lookAt(0, 4, 0);
+    // FPS Counter
+    state.frames++;
+    if (time > state.lastTime + 1) {
+        fpsEl.innerText = state.frames + " FPS";
+        state.frames = 0;
+        state.lastTime = time;
+    }
 
-    // Pass the calculated light color to vegetation shaders
-    vegetation.update(time, globalLightColor);
+    // Update
+    controls.update(dt);
+    if (vegetation) vegetation.update(time, state.rtx, state.wind);
 
-    renderer.render(scene, camera);
+    // Render
+    if (state.rtx) {
+        composer.render();
+    } else {
+        renderer.render(scene, camera);
+    }
 }
 
-// Handle resize
+// Resize
 window.addEventListener('resize', () => {
     camera.aspect = window.innerWidth / window.innerHeight;
     camera.updateProjectionMatrix();
     renderer.setSize(window.innerWidth, window.innerHeight);
+    composer.setSize(window.innerWidth, window.innerHeight);
 });
 
 animate();
