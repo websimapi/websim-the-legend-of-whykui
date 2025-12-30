@@ -72,9 +72,11 @@ const skyColorSunset = new THREE.Color(0xfd5e53);
 const groundColorDay = new THREE.Color(0x3a4b52); // Earthy
 const groundColorNight = new THREE.Color(0x050505);
 
-// Configuration
-const DAY_DURATION = 24 * 60; // 24 minutes in seconds
-const START_TIME = 6 * 60; // Start at 6 AM
+ // Configuration
+const DAY_DURATION = 24 * 60; // 24 minutes in seconds (1 real second = 1 in-game minute)
+const now = new Date();
+// Map local time-of-day to game time: 1 real hour -> 1 in‑game minute
+const START_TIME = ((now.getHours() + now.getMinutes() / 60) * 60) % DAY_DURATION;
 
 // Content
 const terrain = new Terrain(scene);
