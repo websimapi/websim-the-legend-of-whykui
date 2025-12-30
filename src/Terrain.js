@@ -9,9 +9,9 @@ export class Terrain {
     }
 
     init() {
-        // Create a large plane
+        // Create a large plane - Increased resolution for smoothness
         const size = 200;
-        const segments = 100;
+        const segments = 256; 
         const geometry = new THREE.PlaneGeometry(size, size, segments, segments);
         geometry.rotateX(-Math.PI / 2);
 
@@ -26,16 +26,17 @@ export class Terrain {
         
         geometry.computeVertexNormals();
 
-        // Material with simple lighting
+        // Material with better reaction to light
         const material = new THREE.MeshStandardMaterial({
-            color: 0x2b3a42,
-            roughness: 0.9,
-            metalness: 0.1,
-            flatShading: true 
+            color: 0x3a4b52, // Slightly lighter/richer base
+            roughness: 0.8,
+            metalness: 0.0,
+            flatShading: false // Smooth shading
         });
 
         this.mesh = new THREE.Mesh(geometry, material);
         this.mesh.receiveShadow = true;
+        this.mesh.castShadow = false; // Self-shadowing on terrain can be expensive/ugly without bias tuning
         this.scene.add(this.mesh);
     }
 }

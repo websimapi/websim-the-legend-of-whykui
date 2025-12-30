@@ -53,6 +53,7 @@ const vertexShader = `
 const fragmentShader = `
   varying vec2 vUv;
   varying vec3 vColor;
+  uniform vec3 uGlobalLight;
   
   void main() {
     // Simple gradient for grass blade
@@ -61,6 +62,9 @@ const fragmentShader = `
     // Darker at bottom
     color *= smoothstep(-0.2, 1.0, vUv.y);
     
+    // Apply global lighting (Day/Night)
+    color *= uGlobalLight;
+    
     gl_FragColor = vec4(color, 1.0);
   }
 `;
@@ -68,6 +72,7 @@ const fragmentShader = `
 const flowerFragmentShader = `
   varying vec2 vUv;
   varying vec3 vColor;
+  uniform vec3 uGlobalLight;
   
   void main() {
     vec3 color = vColor;
@@ -75,6 +80,9 @@ const flowerFragmentShader = `
     float dist = distance(vUv, vec2(0.5));
     if (dist < 0.2) color += 0.5;
     
+    // Apply global lighting
+    color *= uGlobalLight;
+
     gl_FragColor = vec4(color, 1.0);
   }
 `;
@@ -95,14 +103,15 @@ export class Vegetation {
 
     createGrass() {
         // Simple blade geometry
-        const geometry = new THREE.PlaneGeometry(0.1, 1, 1, 4);
+        const geometry = new THREE.PlaneGeometry(0.12, 1.2, 1, 3); // Slightly larger, fewer segments to optimize high count
         geometry.translate(0, 0.5, 0); // Pivot at bottom
 
         this.grassMaterial = new THREE.ShaderMaterial({
             vertexShader,
             fragmentShader,
             uniforms: {
-                uTime: { value: 0 }
+                uTime: { value: 0 },
+                uGlobalLight: { value: new THREE.Color(1, 1, 1) }
             },
             side: THREE.DoubleSide
         });
@@ -152,7 +161,8 @@ export class Vegetation {
             vertexShader, // Reuse wind shader
             fragmentShader: flowerFragmentShader,
             uniforms: {
-                uTime: { value: 0 }
+                uTime: { value: 0 },
+                uGlobalLight: { value: new THREE.Color(1, 1, 1) }
             },
             side: THREE.DoubleSide
         });
@@ -193,8 +203,14 @@ export class Vegetation {
         this.scene.add(mesh);
     }
 
-    update(time) {
-        if (this.grassMaterial) this.grassMaterial.uniforms.uTime.value = time;
-        if (this.flowerMaterial) this.flowerMaterial.uniforms.uTime.value = time;
+    update(time, lightColor) {
+        if (this.grassMaterial) {
+            this.grassMaterial.uniforms.uTime.value = time;
+            if (lightColor) this.grassMaterial.uniforms.uGlobalLight.value.copy(lightColor);
+        }
+        if (this.flowerMaterial) {
+            this.flowerMaterial.uniforms.uTime.value = time;
+            if (lightColor) this.flowerMaterial.uniforms.uGlobalLight.value.copy(lightColor);
+        }
     }
 }
