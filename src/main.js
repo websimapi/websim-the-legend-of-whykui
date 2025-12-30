@@ -66,7 +66,7 @@ scene.add(moonMesh);
 
 // Colors
 const skyColorDay = new THREE.Color(0x87CEEB);
-const skyColorNight = new THREE.Color(0x050510);
+const skyColorNight = new THREE.Color(0x0a0a20);
 const skyColorSunset = new THREE.Color(0xfd5e53);
 
 const groundColorDay = new THREE.Color(0x3a4b52); // Earthy
@@ -75,8 +75,9 @@ const groundColorNight = new THREE.Color(0x050505);
  // Configuration
 const DAY_DURATION = 24 * 60; // 24 minutes in seconds (1 real second = 1 in-game minute)
 const now = new Date();
-// Map local time-of-day to game time: 1 real hour -> 1 in‑game minute
-const START_TIME = ((now.getHours() + now.getMinutes() / 60) * 60) % DAY_DURATION;
+// Map local time-of-day to game time: 1 real hour -> 1 in‑game minute (which is 1 real second)
+// 00:00 Real Time -> 00:00 Game Time (Start of cycle)
+const START_TIME = ((now.getHours() * 60) + now.getMinutes()) % DAY_DURATION;
 
 // Content
 const terrain = new Terrain(scene);
@@ -118,69 +119,71 @@ function updateDayNight(elapsed) {
     const cycleTime = (elapsed + START_TIME) % DAY_DURATION;
     const progress = cycleTime / DAY_DURATION; // 0 to 1
     
-    // Angle: 0 = Sunrise, 0.25 = Noon, 0.5 = Sunset, 0.75 = Midnight
-    const theta = progress * Math.PI * 2;
+    // Angle adjustment: 
+    // progress 0.0 (00:00) -> Midnight (Sun Down -Y)
+    // progress 0.25 (06:00) -> Sunrise (Sun Y=0)
+    // progress 0.5 (12:00) -> Noon (Sun Up +Y)
+    // progress 0.75 (18:00) -> Sunset (Sun Y=0)
+    const theta = (progress - 0.25) * Math.PI * 2;
     
     // Sun Position (rises in East(x+), sets in West(x-))
     const sunRadius = 150;
-    const sunY = Math.sin(theta);
+    const sunElevation = Math.sin(theta); // -1 to 1
     const sunX = Math.cos(theta);
     
-    sunMesh.position.set(sunX * sunRadius, sunY * sunRadius, 0);
+    sunMesh.position.set(sunX * sunRadius, sunElevation * sunRadius, 0);
     sunLight.position.copy(sunMesh.position);
     
     // Moon Position (opposite to sun)
-    moonMesh.position.set(-sunX * sunRadius, -sunY * sunRadius, 0);
+    moonMesh.position.set(-sunX * sunRadius, -sunElevation * sunRadius, 0);
     moonLight.position.copy(moonMesh.position);
 
     // Light Intensity & Shadows
-    // Sun is bright during day (sin(theta) > 0)
-    const sunIntensity = Math.max(0, Math.sin(theta));
+    const sunIntensity = Math.max(0, sunElevation);
     sunLight.intensity = sunIntensity * 2.0;
     
-    // Moon is bright during night (sin(theta) < 0)
-    // We dampen it so it's not as bright as sun
-    const moonIntensity = Math.max(0, -Math.sin(theta));
-    moonLight.intensity = moonIntensity * 0.5;
+    const moonIntensity = Math.max(0, -sunElevation);
+    moonLight.intensity = moonIntensity * 0.5; // Blue moonlight
 
-    // Toggle shadows to save resources when light is below horizon
-    sunLight.castShadow = sunIntensity > 0.1;
-    moonLight.castShadow = moonIntensity > 0.1;
+    // Shadows
+    sunLight.castShadow = sunIntensity > 0.05;
+    moonLight.castShadow = moonIntensity > 0.05;
 
     // Sky Color Interpolation
-    // Simple mixing
-    let targetSky = skyColorNight;
-    if (sunIntensity > 0) {
-        // Sunrise/Sunset transition
-        if (sunIntensity < 0.5) {
-            targetSky = skyColorSunset.clone().lerp(skyColorDay, (sunIntensity) * 2);
-        } else {
-            targetSky = skyColorDay;
-        }
-    }
+    let targetSky = skyColorNight.clone();
     
-    // Smooth transition from Night to Sunrise
-    if (sunIntensity <= 0 && sunIntensity > -0.2) {
-         // Twilight
-         targetSky = skyColorNight.clone().lerp(skyColorSunset, (sunIntensity + 0.2) * 5);
-    }
+    if (sunElevation > 0.1) {
+        // Day
+        const t = Math.min(1, (sunElevation - 0.1) * 1.5);
+        targetSky = skyColorSunset.clone().lerp(skyColorDay, t);
+    } else if (sunElevation > -0.2) {
+        // Twilight / Sunrise / Sunset
+        // Range -0.2 to 0.1 -> 0 to 1
+        const t = (sunElevation + 0.2) / 0.3;
+        targetSky = skyColorNight.clone().lerp(skyColorSunset, t);
+    } 
+    // Else Night (stays skyColorNight)
 
     scene.background.copy(targetSky);
     scene.fog.color.copy(targetSky);
 
     // Atmosphere / Hemisphere
-    // Up color matches sky, Down color matches ground tone
     hemiLight.color.copy(targetSky);
-    
-    const currentGround = groundColorNight.clone().lerp(groundColorDay, sunIntensity);
+    // Boost ground ambient slightly at night for "Moon bounce"
+    const moonBounce = new THREE.Color(0x1a2b45).multiplyScalar(moonIntensity * 0.5); 
+    const currentGround = groundColorNight.clone().add(moonBounce).lerp(groundColorDay, sunIntensity);
     hemiLight.groundColor.copy(currentGround);
     
-    // Calculate global ambient brightness for vegetation
-    // Mix sun color and moon color influence
+    // Global Light for Vegetation (Fake GI)
     globalLightColor.setHex(0x000000);
+    // Sun contribution
     globalLightColor.add(new THREE.Color(0xffdfba).multiplyScalar(sunIntensity));
-    globalLightColor.add(new THREE.Color(0x6688ff).multiplyScalar(moonIntensity * 0.5));
-    globalLightColor.add(targetSky.multiplyScalar(0.3)); // Ambient
+    // Moon contribution - boosted for visibility
+    globalLightColor.add(new THREE.Color(0x88aaff).multiplyScalar(moonIntensity * 0.8));
+    // Ambient contribution
+    globalLightColor.add(targetSky.multiplyScalar(0.4));
+    // Minimum floor to prevent pitch black
+    globalLightColor.addScalar(0.05); 
 }
 
 function animate() {

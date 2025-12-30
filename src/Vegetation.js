@@ -76,13 +76,16 @@ const flowerFragmentShader = `
   
   void main() {
     vec3 color = vColor;
-    // Add a glowing center
-    float dist = distance(vUv, vec2(0.5));
-    if (dist < 0.2) color += 0.5;
-    
-    // Apply global lighting
+    // Apply global lighting first to base petal color
     color *= uGlobalLight;
-
+    
+    // Add a glowing center (Emissive - visible at night)
+    float dist = distance(vUv, vec2(0.5));
+    if (dist < 0.2) {
+         // Warm golden/white glow
+         color += vec3(0.5, 0.4, 0.2); 
+    }
+    
     gl_FragColor = vec4(color, 1.0);
   }
 `;
