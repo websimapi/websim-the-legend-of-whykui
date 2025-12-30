@@ -63,7 +63,8 @@ const terrain = new Terrain(scene);
 let vegetation;
 
 // Defer vegetation creation until terrain is ready (synchronous here but good practice)
-vegetation = new Vegetation(scene, terrain.mesh, 20000);
+// Reduced count slightly for better mobile performance while maintaining density feel
+vegetation = new Vegetation(scene, terrain.mesh, 15000);
 
 // --- Post Processing ---
 const composer = new EffectComposer(renderer);
@@ -71,7 +72,7 @@ const composer = new EffectComposer(renderer);
 const renderPass = new RenderPass(scene, camera);
 composer.addPass(renderPass);
 
-const bloomPass = new UnrealBloomPass(new THREE.Vector2(window.innerWidth / 2, window.innerHeight / 2), 1.5, 0.4, 0.85);
+const bloomPass = new UnrealBloomPass(new THREE.Vector2(window.innerWidth, window.innerHeight), 1.5, 0.4, 0.85);
 bloomPass.threshold = 0.7;
 bloomPass.strength = 0.3;
 bloomPass.radius = 0.5;

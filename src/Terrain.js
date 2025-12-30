@@ -42,16 +42,14 @@ export class Terrain {
             // Low slope = Soil/Grass base (Brownish)
             // Low height = darker (Occlusion)
             
-            // Fix: THREE.MathUtils.smoothstep(x, min, max) - corrected arg order and added namespace
-            const isFlat = THREE.MathUtils.smoothstep(ny, 0.5, 0.8);
-            const heightOcc = THREE.MathUtils.smoothstep(y, -5, 5);
+            const isFlat = THREE.MathUtils.smoothstep(0.5, 0.8, ny);
+            const heightOcc = THREE.MathUtils.smoothstep(-5, 5, y);
             
             const baseColor = new THREE.Color(0x2d4c1e); // Grass Green Base
             const rockColor = new THREE.Color(0x4a4a4a); // Rock Grey
             
             // Bias towards grass color for stylized look
-            const mixFactor = THREE.MathUtils.smoothstep(isFlat, 0.6, 0.9);
-            const finalColor = rockColor.clone().lerp(baseColor, mixFactor);
+            const finalColor = rockColor.clone().lerp(baseColor, THREE.MathUtils.smoothstep(0.6, 0.9, isFlat));
             finalColor.multiplyScalar(0.5 + 0.5 * heightOcc); // AO
 
             colors.push(finalColor.r, finalColor.g, finalColor.b);
